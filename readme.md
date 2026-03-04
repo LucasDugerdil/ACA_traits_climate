@@ -1,10 +1,10 @@
-# Pollen-based functional traits for the Arid Central Asia (ACA).
+# Pollen-based functional traits and their relationships with climate for the Arid Central Asia (ACA).
 
 ## Overview
 This repository contains the R code and data for the study:
 
-**"Modern pollen assemblages and vegetation plots record similar community functional trait responses to climate."**  
-In preparation in *Journal of Ecology*.
+**"Trait-climate relationships are comparable for modern pollen assemblages and extant vegetation plots."**  
+In reviews with *Journal of Ecology*.
 
 Author: **Lucas Dugerdil**  
 Affiliations:  
