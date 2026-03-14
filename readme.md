@@ -4,7 +4,7 @@
 This repository contains the R code and data for the study:
 
 **"Trait-climate relationships are comparable for modern pollen assemblages and extant vegetation plots."**  
-In reviews with *Journal of Ecology*.
+In reviews with *Global Ecology and Biogeography*.
 
 Author: **Lucas Dugerdil**  
 Affiliations:  
