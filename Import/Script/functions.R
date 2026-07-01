@@ -585,6 +585,30 @@ Stacking.quantif <- function(Imput.list, Keep.clim = NULL, Scaling = F, Plot.x =
   #### Inner functions ####
   Scaling.fun <- function(x = NULL, a = -1, b = 1){x <- a + (b-a)*(x-min(x, na.rm = T))/(max(x, na.rm = T)-min(x, na.rm = T)); return(x)}
   
+  scale_ensemble_df <- function(df, a = -1, b = 1) {
+    detect_ensemble_params <- function(names_vec) {
+      means <- names_vec[!grepl("_(MaxI|MinI)$", names_vec) & names_vec != "Age"]
+      params <- lapply(means, function(m) {c(mean = m, max  = paste0(m, "_MaxI"), min  = paste0(m, "_MinI"))})
+      params[sapply(params, function(x) all(x %in% names_vec))]
+    }
+    
+    scale_ensemble_triplet <- function(df, triplet, a = -1, b = 1) {
+      ref_min <- min(df[, triplet], na.rm = TRUE)
+      ref_max <- max(df[, triplet], na.rm = TRUE)
+      
+      if (!is.finite(ref_min) || ref_min == ref_max) return(df)
+      
+      scale_fun <- function(x) {a + (b - a) * (x - ref_min) / (ref_max - ref_min)}
+      
+      df[, triplet] <- lapply(df[, triplet], scale_fun)
+      return(df)
+    }
+    
+    triplets <- detect_ensemble_params(names(df))
+    for(tr in triplets){df <- scale_ensemble_triplet(df, tr, a, b)}
+    return(df)
+    }
+  
   Bin.by.TW <- function(x, Anomaly = F, Add.bin.count = F){
     Nb.param <- ncol(x)
     x <- dplyr::mutate(x, TimeWind = cut(Age, breaks = TW.x, include.lowest = F))
@@ -685,7 +709,10 @@ Stacking.quantif <- function(Imput.list, Keep.clim = NULL, Scaling = F, Plot.x =
     })
     Imput.list <- Filter(Negate(is.null), Imput.list)
   }
-  if(Scaling == T){Imput.list <- lapply(Imput.list, function(x) cbind(Age = x[Plot.x], data.frame(apply(x[-c(1)], 2, Scaling.fun))))}
+  
+  # if(Scaling == T){Imput.list <- lapply(Imput.list, function(x) cbind(Age = x[Plot.x], data.frame(apply(x[-c(1)], 2, Scaling.fun))))} # Old scaling (pour chaque columns indé.)
+  if(Scaling == T){Imput.list <- lapply(Imput.list, scale_ensemble_df)}                                                                 # New scaling (Par triplet de mean, max, min)
+  
   if(Anomaly == T & Binning == F){Imput.list <- lapply(Imput.list, function(y){cbind(y[1], apply(y[2:ncol(y)], 2, function(x) x <- x - x[1]))})}
   
   if(length(Imput.list) == 0){
@@ -1377,6 +1404,260 @@ Matcor.by.core.litho <- function(XRF, GDGT, Pollen, MMS, Plot.x, Cluster = NULL,
   }
   
   if(return.plot == T){return(CP)}
+  
+}
+
+Partial.Regression.CWM <- function(dataframe = NULL, List.of.traits = NULL, Climate.param.1 = NULL,
+                                   Level.p.val = c(0.001, 0.01, 0.05),
+                                   Climate.param.2 = NULL, Climate.param.3 = NULL, Save.path = NULL, Save.plot = NULL) {
+  
+  #### Settings ####
+  library(broom)
+  library(rsq)
+  
+  p_value_to_stars <- function(p) {
+    ifelse(p <= Level.p.val[1], "***",
+           ifelse(p <= Level.p.val[2], "**",
+                  ifelse(p <= Level.p.val[3], "*", "")))}
+  
+  results_list <- list()
+  plot_list <- list()
+  
+  predictors <- c(Climate.param.1, Climate.param.2, Climate.param.3)
+  dataframe <- dataframe[names(dataframe) %in% c(predictors, List.of.traits)]
+  
+  predictors <- gsub("_wc", "", predictors)
+  names(dataframe) <- gsub("_wc", "", names(dataframe))
+  names(dataframe) <- gsub("TRY_", "", names(dataframe))
+  List.of.traits <- gsub("TRY_", "", List.of.traits)
+  
+  #### Loop on traits ####
+  for (trait in List.of.traits) {
+    # Build formula
+    formula_full <- as.formula(paste(trait, "~", paste(predictors, collapse = " + ")))
+    model <- lm(formula_full, data = dataframe)
+    
+    #### Statistical metrics ####
+    tidy_res <- broom::tidy(model)
+    glance_res <- broom::glance(model)
+    
+    rss_full <- sum(resid(model)^2)
+    
+    partial_r2_values <- sapply(predictors, function(pred) {
+      
+      reduced_predictors <- setdiff(predictors, pred)
+      
+      reduced_formula <- as.formula(
+        paste(trait, "~", paste(reduced_predictors, collapse = " + "))
+      )
+      
+      reduced_model <- lm(reduced_formula, data = dataframe)
+      
+      rss_reduced <- sum(resid(reduced_model)^2)
+      
+      (rss_reduced - rss_full) / rss_reduced
+    })
+    
+    partial_r2_df <- data.frame(
+      term = predictors,
+      Partial_R2 = partial_r2_values
+    )
+    
+    # Merge regression table + partial R²
+    metrics <- tidy_res %>%
+      left_join(partial_r2_df, by = "term") %>%
+      mutate(Trait = trait)
+    
+    # Add global R² only once
+    metrics$Global_R2 <- NA
+    metrics$Adj_Global_R2 <- NA
+    
+    metrics$Global_R2[1] <- glance_res$r.squared
+    metrics$Adj_Global_R2[1] <- glance_res$adj.r.squared
+    
+    results_list[[trait]] <- metrics
+    
+    #### Plots ####
+    if(is.null(Save.plot) == F){
+      for (pred in predictors) {
+        
+        others <- setdiff(predictors, pred)
+        
+        # Residuals of trait ~ other predictors
+        model_y <- lm(as.formula(paste(trait, "~", paste(others, collapse = " + "))), data = dataframe)
+        
+        res_y <- resid(model_y)
+        
+        # Residuals of predictor ~ other predictors
+        model_x <- lm(as.formula(paste(pred, "~", paste(others, collapse = " + "))), data = dataframe)
+        
+        res_x <- resid(model_x)
+        
+        df_plot <- data.frame(res_x = res_x, res_y = res_y)
+        
+        p <- ggplot(df_plot, aes(x = res_x, y = res_y)) +
+          geom_point() +
+          geom_smooth(method = "lm", se = TRUE) +
+          labs(
+            title = paste("Partial regression:", trait, "~", pred),
+            x = paste(pred, "(residuals)"),
+            y = paste(trait, "(residuals)")
+          ) +
+          theme_minimal()
+        
+        plot_name <- paste(trait, pred, sep = "_")
+        plot_list[[plot_name]] <- p
+        
+        # Save plot if path provided
+        if (!is.null(Save.plot)) {
+          ggsave(
+            filename = paste0(Save.plot, "/", plot_name, ".png"),
+            plot = p,
+            width = 6,
+            height = 5
+          )
+        }
+      }
+    }}
+  
+  #### Combine results in table and clean ####
+  final_results <- bind_rows(results_list)
+  final_results <- final_results[c(7,1,9,6,5)]
+  
+  final_results$CWMs <- final_results$Trait
+  for(i in 2:nrow(final_results)){if(final_results$Trait[i] == final_results$Trait[i-1]){final_results$CWMs[i] <- ""}}
+  final_results <- final_results[c(ncol(final_results), 2: (ncol(final_results)-1))]
+  
+  final_results$Partial_R2 <- round(final_results$Partial_R2, 3)
+  final_results$Adj_Global_R2 <- round(final_results$Adj_Global_R2, 2)
+  final_results$p.value <- sapply(as.numeric(final_results$p.value), p_value_to_stars)
+  
+  
+  #### Save table and export ####
+  if (!is.null(Save.path)) {write.csv(final_results, file = Save.path, row.names = FALSE)}
+  
+  return(list(
+    Metrics = final_results,
+    Plots = plot_list
+  ))
+}
+
+Bootstrap.Sensitivity <- function(DF1,
+                                  DF2,
+                                  Relation.2.test,
+                                  Nb.boot = 2000, Digits.r = 2, Digits.slope = 4,
+                                  Save.LateX = NULL,
+                                  id_col = "id") {
+  
+  #### Safety checks ####
+  if (!id_col %in% names(DF1) || !id_col %in% names(DF2)) {
+    stop("id_col not found in both DF1 and DF2")
+  }
+  
+  results <- list()
+  
+  safe_lm_slope <- function(df, y, x) {
+    if (nrow(df) < 3) return(NA_real_)
+    tryCatch({
+      coef(lm(df[[y]] ~ df[[x]]))[2]
+    }, error = function(e) NA_real_)
+  }
+  set.seed(123)
+  
+  #### Relationships loop ####
+  for (rel in Relation.2.test) {
+    
+    parts <- strsplit(rel, "vs\\.")[[1]]
+    trait <- trimws(parts[1])
+    clim  <- trimws(parts[2])
+    
+    # ---------------------------
+    # Column existence check
+    # ---------------------------
+    if (!(trait %in% names(DF1) && trait %in% names(DF2))) {
+      stop(paste("Trait not found in both datasets:", trait))
+    }
+    if (!(clim %in% names(DF1) && clim %in% names(DF2))) {
+      stop(paste("Climate variable not found in both datasets:", clim))
+    }
+    
+    #### bootstrap storage ####
+    delta_r <- numeric(Nb.boot)
+    delta_slope <- numeric(Nb.boot)
+    
+    for (b in 1:Nb.boot) {
+      
+      idx <- sample(1:nrow(DF1), nrow(DF1), replace = TRUE)
+      d1b <- DF1[idx, ]
+      
+      # subset DF2 within same bootstrap sample
+      d2b <- d1b[d1b[[id_col]] %in% DF2[[id_col]], ]
+      
+      if (nrow(d2b) < 3) {
+        delta_r[b] <- NA
+        delta_slope[b] <- NA
+        next
+      }
+      
+      # correlations
+      r0 <- cor(d1b[[trait]], d1b[[clim]], use = "complete.obs")
+      r1 <- cor(d2b[[trait]], d2b[[clim]], use = "complete.obs")
+      
+      # slopes
+      b0 <- safe_lm_slope(d1b, trait, clim)
+      b1 <- safe_lm_slope(d2b, trait, clim)
+      
+      delta_r[b] <- r1 - r0
+      delta_slope[b] <- b1 - b0
+    }
+    
+    delta_r <- na.omit(delta_r)
+    delta_slope <- na.omit(delta_slope)
+    
+    #### summary statistics ####
+    results[[rel]] <- data.frame(
+      trait = trait,
+      climate = clim,
+      
+      delta_r_mean = mean(delta_r),
+      delta_r_low = quantile(delta_r, probs = 0.025),
+      delta_r_high = quantile(delta_r, probs = 0.975),
+      p_r = 2 * min(mean(delta_r > 0), mean(delta_r < 0), na.rm = T),
+      # p_r = max(2 * min(mean(delta_r > 0), mean(delta_r < 0)), 1 / Nb.boot),
+      
+      delta_slope_mean = mean(delta_slope),
+      delta_slope_low = quantile(delta_slope, probs = 0.025),
+      delta_slope_high = quantile(delta_slope, probs = 0.975),
+      p_slope = 2 * min(mean(delta_slope > 0), mean(delta_slope < 0), na.rm = T)
+      # p_slope = max(2 * min(mean(delta_slope > 0), mean(delta_slope < 0)), 1 / Nb.boot)
+    )
+  }
+  
+  #### return and clean data.frame ####
+  results <- do.call(rbind, results)
+  results$trait <- gsub("TRY_", "", results$trait)
+  results$CI_r <- paste0("[", round(results$delta_r_low, Digits.r), "; ", round(results$delta_r_high, Digits.r), "]")
+  results$delta_r_mean <- round(results$delta_r_mean, Digits.r)
+  
+  results$CI_slope <- paste0("[", round(results$delta_slope_low, Digits.slope), "; ", round(results$delta_slope_high, Digits.slope), "]")
+  results$delta_slope_mean <- round(results$delta_slope_mean, Digits.slope)
+  
+  results <- subset(results, select = -c(delta_slope_low, delta_slope_high, delta_r_low, delta_r_high))
+  # results <- results[c(1,2,3,7,4,5,8,6)]
+  results <- results[c(1,2,3,7,4,5,8,6)]
+  
+  #### Save and export ####
+  if(is.null(Save.LateX) == F){
+    library(xtable)
+    LateX.caption <- "Sensitivity analysis "
+    Tlatex <- xtable(results, caption = LateX.caption, type = "latex", label = "FT_table")
+    print(Tlatex, file = Save.LateX, booktabs = T, include.rownames = F, comment = F,
+          caption.placement = "top", sanitize.text.function = function(x){x},
+          hline.after = c(-1,0,nrow(results)))
+    
+  }
+  
+  return(results)
   
 }
 
@@ -2383,7 +2664,7 @@ Map.biogeo.CWM <- function(MCWT = NULL, MCWT2 = NULL, Select.trait = NULL, Type1
         geom_text(aes(label = Lab))+ Theme.null
       
       p.right <- ggplot(S.trait, mapping = aes(x = x, y = y))+ 
-        facet_wrap(vars(Lab), scales = "free_x", nrow = n.trait) +
+        facet_wrap(vars(Lab), scales = "free_x", nrow = n.trait) + coord_cartesian(clip = "off") +
         geom_text(aes(label = Lab), angle = 270,  hjust=0.5, vjust=1)+ Theme.null}
     else{
       p.up <- ggplot(S.trait, mapping = aes(x = x, y = y))+ 
@@ -2505,7 +2786,8 @@ Map.biogeo.CWM <- function(MCWT = NULL, MCWT2 = NULL, Select.trait = NULL, Type1
 
 LRelation.CWT.clim <- function(CWT, Select.trait, Select.Pclim, Select.eco, Trait.lim, Add.n, Pearson.r = F,
                                Tit.x.axis = "Climate parameters", Pearson.r.pos = "topright", Transform.Pclim = NULL,
-                               Transformation.method = "log", Strip.pos = "left",
+                               Transformation.method = "log", Strip.pos = "left", Add.bootstrap = F, Nb.boot = 99,
+                               Save.bootstrap = NULL, r.size = 3.5, Add.n.facet = F,
                                Strip.lab, Bit.map, Leg.pos, Facet.scale, Add.linear, Alpha, Save.plot, H, W){
   #### Settings ####
   if(missing(Alpha)){Alpha = 1}
@@ -2574,26 +2856,100 @@ LRelation.CWT.clim <- function(CWT, Select.trait, Select.Pclim, Select.eco, Trai
     
     Add.linear <- stat_poly_line(method='lm', se = T, color='turquoise4', fill = "turquoise4", size = .7, linetype = "dashed")
     
-    if(Add.n == F){
-      Add.r2 <- stat_poly_eq(label.y = ry, label.x = rx, color = "turquoise4", size = 3.5, small.r = F,
-                             aes(label =  sprintf("%s*\", \"*%s" ,
-                                                  after_stat(rr.label),
-                                                  after_stat(p.value.label))))
-      # Pearson r
-      if(Pearson.r == T){
-        Add.r2 <- stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, cor.coef.name = c("r"), 
-                           label.x.npc = rx, label.y.npc = ry, hjust = 1, vjust = 0)}
+    if(Add.bootstrap == F){
+      
+      if(Add.n == F){
+        if(Pearson.r == T){
+          Add.r2 <- stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, cor.coef.name = c("r"), 
+                             label.x.npc = rx, label.y.npc = ry, hjust = 1, vjust = 0)}
+        else{
+          Add.r2 <- stat_poly_eq(label.y = ry, label.x = rx, color = "turquoise4", size = r.size, small.r = F,
+                                 aes(label =  sprintf("%s*\", \"*%s" ,
+                                                      after_stat(rr.label),
+                                                      after_stat(p.value.label))))}
+      }
+      else{
+        if(Pearson.r == T){
+          Add.r2 <- stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, cor.coef.name = c("r"), 
+                             label.x.npc = rx, label.y.npc = ry, hjust = 1, vjust = 0)}
+        else{
+          Add.r2 <- stat_poly_eq(label.y = ry, label.x = rx, color = "turquoise4", size = r.size, small.r = F,
+                                 aes(label =  sprintf("%s*\", \"*%s*\", \"*%s" ,
+                                                      after_stat(rr.label),
+                                                      after_stat(p.value.label),
+                                                      after_stat(n.label))))
+        }
+      }
     }
     else{
-      Add.r2 <- stat_poly_eq(label.y = ry, label.x = rx, color = "turquoise4", size = 3, small.r = F,
-                             aes(label =  sprintf("%s*\", \"*%s*\", \"*%s" ,
-                                                  after_stat(rr.label),
-                                                  after_stat(p.value.label),
-                                                  after_stat(n.label))))
-      if(Pearson.r == T){
-        Add.r2 <- stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, cor.coef.name = c("r"), 
-                           label.x.npc = rx, label.y.npc = ry, hjust = 1, vjust = 0)}
+      library(boot)
+      set.seed(123)
+      boot_cor <- function(data, indices) {
+        d <- data[indices, ]
+        return(cor(d$Clim.Val, d$Trait.Val, use = "complete.obs"))}
       
+      p_to_stars <- function(p) {
+        if (p < 0.001) return("***")
+        else if (p < 0.01) return("**")
+        else if (p < 0.05) return("*")
+        else return("ns")
+      }
+      # wrapper function
+      get_cor_stats <- function(df, nboot = Nb.boot) {
+        
+        d <- df[, c("Clim.Val", "Trait.Val")]
+        d <- na.omit(d)
+        n <- nrow(d)
+        r <- cor(d$Clim.Val, d$Trait.Val)
+        p <- cor.test(d$Clim.Val, d$Trait.Val)$p.value
+        
+        boot_res <- boot(data = d, statistic = boot_cor, R = Nb.boot)
+        ci <- boot.ci(boot_res, type = "perc")$percent[4:5]
+        
+        data.frame(
+          n = n,
+          r = r,
+          p = p,
+          ci_low = ci[1],
+          ci_high = ci[2]
+        )
+      }
+      
+      stats_df <- CWT.m %>%
+        group_by(Trait, Clim) %>%
+        summarise(get_cor_stats(cur_data()), .groups = "drop") %>%
+        rowwise() %>%
+        mutate(
+          stars = p_to_stars(p)
+        ) %>%
+        ungroup()
+      
+      stats_df <- stats_df %>%
+        mutate(
+          n_part = if (Add.n) paste0(" * \", n = ", n, "\"") else "",
+          
+          label = paste0(
+            "italic(r)==", sprintf("%.2f", r),
+            "*\"", stars, "\"",
+            "*\", CI [", sprintf("%.2f", ci_low), ", ", sprintf("%.2f", ci_high), "]\"",
+            n_part
+          )
+        )
+      
+      stats_df <- stats_df %>%
+        mutate(
+          x_pos = ifelse(rx == "right", Inf, -Inf),
+          y_pos = ifelse(ry == "top", Inf, -Inf),
+          hjust = ifelse(rx == "right", 1.05, -0.05),
+          vjust = ifelse(ry == "top", 1.05, -0.05)
+        )
+      
+      if(is.null(Save.bootstrap) == F){saveRDS(stats_df, Save.bootstrap)}
+      
+      Add.r2 <-  geom_text(data = stats_df,
+                           aes(x = x_pos, y = y_pos, label = label,
+                               hjust = hjust, vjust = vjust), size = r.size,
+                           inherit.aes = F, parse = T)
     }
   }
   
@@ -2638,6 +2994,18 @@ LRelation.CWT.clim <- function(CWT, Select.trait, Select.Pclim, Select.eco, Trai
     S.trait <- setNames(data.frame(as.factor(unique(CWT.m$Trait)), rep(1,nlevels(CWT.m$Trait)), rep(1,nlevels(CWT.m$Trait))), c("Lab", "x","y"))
     S.clim <- setNames(data.frame(as.factor(unique(CWT.m$Clim)), rep(1,nlevels(CWT.m$Clim)), rep(1,nlevels(CWT.m$Clim))), c("Lab", "x","y"))
     
+    if(Add.n.facet == T){
+      NB.count <- CWT.m[c("Trait", "Trait.Val", "Clim")]
+      NB.count <- na.omit(NB.count)
+      NB.count <- NB.count[NB.count$Clim == levels(NB.count$Clim)[1],]
+      NB.count <- NB.count[c("Trait")]
+      NB.count <- count(NB.count, NB.count$Trait)
+      names(NB.count) <- c("Labs", "n")
+      S.trait$Lab2 <- paste0(S.trait$Lab, "\n(n = ", NB.count$n[match(S.trait$Lab, NB.count$Labs)], ")")
+      My_lab <- geom_text(aes(label = Lab2), angle = 90,  hjust=0.5, vjust=1)
+    }
+    else{My_lab <- geom_text(aes(label = Lab), angle = 90,  hjust=0.5, vjust=1)}
+    
     Theme.null <- theme(axis.line = element_blank(), axis.title.x = element_blank(),
                         strip.text = element_blank(), axis.text = element_blank(),
                         axis.ticks = element_blank(), plot.background = element_blank(), strip.clip = "off",
@@ -2651,7 +3019,7 @@ LRelation.CWT.clim <- function(CWT, Select.trait, Select.Pclim, Select.eco, Trai
       facet_wrap(vars(Lab), scales = "free_x", nrow = n.trait)+
       coord_cartesian(clip = 'off') +
       ylab(substitute(CWM~traits~(italic(z)-score)))+
-      geom_text(aes(label = Lab), angle = 90,  hjust=0.5, vjust=1)+ Theme.null
+      My_lab+ Theme.null
     
     Y.tit <- NULL
     Tit.x.param <- element_blank()
@@ -3243,4 +3611,598 @@ Merge.local.global.trait <- function(Pollen, Trait.ACA.pol, Trait.ACA.veg = NULL
   Trait.tab <- Trait.tab[!duplicated(Trait.tab),]
   if(Display.warning == T & length(row.names(Pollen)[! row.names(Pollen) %in% Trait.tab$taxa]) > 0){print(row.names(Pollen)[! row.names(Pollen) %in% Trait.tab$taxa])}
   return(Trait.tab)
+}
+
+RDA.pollen.surf <- function(MP, MClim, Choose.clim, Cluster.path = NULL, Alpha.dot = NULL, Type.samples, Shape.groups = NULL, Sort.eco, Color.choice = NULL, Result.vector = F, Arrow.lab.size = .95,
+                            Cluster.groups, Display.legends, transp_OK, Manu.lim, GDGT, Traits, Annot, Vector.show = NULL, Nb.contrib = NULL, Leg.size = 1, Sort.shape = NULL, Result.clim = F,
+                            Remove.7Me, Leg.loc, Helinger.trans = F, Display.plot = T, Leg.loc2, Simple.title, Show.text, Symbol.loc, Symbol.loc.2 = NULL, Symbol.path, Symbol.path.2 = NULL, VIF = F, VIF.seuil = NULL, Dot.size = 1.5,
+                            Display.VIF = T, Remove.NA = F, Complete.NA = F, ggplot.display = F, Marg.density.plot = F, return.VIF = F, Vector.env.scale = 1, Vector.scale = 1, Site.name, Reduce.lab.taxa = T,
+                            Csv.sep, Scale.taxa, Scale.sites, Save.path, Save.plot = NULL, Title.inside = F, return.pick = F){
+  #### Settings ####
+  library(vegan)
+  # library(missMDA)
+  if(missing(Type.samples)){Type.samples = NULL}
+  if(missing(Csv.sep)){Csv.sep = "\t"}
+  if(missing(Annot)){Annot = NULL}
+  if(missing(Sort.eco)){Sort.eco = NULL}
+  if(missing(Show.text)){Show.text = F}
+  if(missing(Remove.7Me)){Remove.7Me = F}
+  if(missing(Simple.title)){Simple.title = F}
+  if(missing(Cluster.groups)){
+    if(is.null(Cluster.path) == F){
+      Cluster.groups = c("Ecosystems", "Biomes", "Vegetation", "Aridity2", "Aridity")
+      Cluster.groups <- names(Cluster.path)[names(Cluster.path)  %in% Cluster.groups][1]
+    }
+  }
+  if(missing(Display.legends)){Display.legends = T}
+  if(missing(Choose.clim)){print("Select the climat variable to perform the RDA.")}
+  if(missing(Scale.taxa)){Scale.taxa = 1}
+  if(missing(Scale.sites)){Scale.sites = 2}
+  if(missing(Save.path)){Save.path = NULL}
+  if(missing(Manu.lim)){Manu.lim = NULL}
+  if(missing(GDGT)){GDGT = NULL}
+  if(missing(Traits)){Traits = NULL}
+  if(missing(Site.name)){Site.name = ""}
+  if(missing(Leg.loc)){Leg.loc = "bottomleft"}
+  if(missing(Leg.loc2)){Leg.loc2 = "bottomright"}
+  if(missing(Symbol.path)){Symbol.path = NULL}
+  if(missing(Symbol.loc)){Symbol.loc = NULL}
+  
+  #### Save plots ####
+  if(is.null(Save.plot) == F){
+    Path.to.create <- gsub("(.*/).*\\.pdf.*","\\1", Save.plot)
+    dir.create(file.path(Path.to.create), showWarnings = FALSE)
+    if(is.null(W) == F & is.null(H) == F){
+      pdf(file = Save.plot, width = W*0.01041666666667, height = H*0.01041666666667)}
+    else{pdf(file = Save.plot)}}
+  
+  #### Pour les GDGTs ####
+  if(is.null(GDGT) == F){
+    if(Remove.7Me == T){MP <- MP[setdiff(row.names(MP), row.names(MP)[grepl("7Me", row.names(MP))]),]}
+    row.names(MP) <- gsub("f.", "", row.names(MP))
+    row.names(MP) <- gsub("_5Me", "", row.names(MP))
+    row.names(MP) <- gsub("_6Me", "\\'", row.names(MP))
+    row.names(MP) <- gsub("_7Me", "\\''", row.names(MP))
+  }
+  
+  #### Pour les traits ####
+  if(is.null(Traits) == F){
+    row.names(MP) <- gsub("TRY_", "", row.names(MP))
+    names(MClim) <- gsub("_wc", "", names(MClim))
+    Choose.clim <- gsub("_wc", "", Choose.clim)
+    names(MClim) <- gsub("_chel", "", names(MClim))
+    Choose.clim <- gsub("_chel", "", Choose.clim)
+  }
+  
+  #### Pour le pollen ####
+  if(is.null(GDGT) == T){
+    if(Reduce.lab.taxa == T){
+      row.names(MP) <- gsub("aceae",".",row.names(MP))
+      row.names(MP) <- gsub(".undiff","",row.names(MP))
+      row.names(MP) <- gsub(".indet","",row.names(MP))
+      row.names(MP) <- gsub(".*Po.$","Poa.",row.names(MP))
+      row.names(MP) <- gsub(".spp.","",row.names(MP))
+      row.names(MP) <- gsub(".type","",row.names(MP))
+      row.names(MP) <- gsub("us ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("us$","\\.",row.names(MP))
+      row.names(MP) <- gsub("ia ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("ia$","\\.",row.names(MP))
+      row.names(MP) <- gsub("eae ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("eae$","\\. ",row.names(MP))
+      row.names(MP) <- gsub("ata ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("ata$","\\.",row.names(MP))
+      row.names(MP) <- gsub("era ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("era$","\\.",row.names(MP))
+      row.names(MP) <- gsub("ago ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("ago$","\\.",row.names(MP))
+      row.names(MP) <- gsub("erum$","\\.",row.names(MP))
+      row.names(MP) <- gsub("erum ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("tris ","\\. ",row.names(MP))
+      row.names(MP) <- gsub("tris$","\\.",row.names(MP))
+      row.names(MP) <- gsub("aurea$","\\.",row.names(MP))
+      row.names(MP) <- gsub("aurea ","\\. ",row.names(MP))
+    }
+  }
+  
+  MP <- data.frame(t(MP), check.names = F)
+  
+  #### Import Climat + verif match DB ####
+  if(is.character(MClim) == T){Clim <- data.frame(read.csv(MClim, sep = Csv.sep, dec = ".", header=T, row.names=1), stringsAsFactors = T)}
+  if(is.data.frame(MClim) == T){Clim <- MClim}
+  C <- colnames(Clim)
+  Inter <- intersect(row.names(Clim), row.names(MP))
+  Clim <- Clim[which(row.names(Clim) %in% Inter),]
+  MP <- MP[which(row.names(MP) %in% Inter),]
+  Clim <- data.frame(Clim[][row.names(MP),])
+  row.names(Clim) <- row.names(MP)
+  colnames(Clim) <- C
+  Clim.rda <- subset(Clim, select = Choose.clim)
+  
+  #### Complete missing informations ####
+  if(any(is.na(MP)) | any(is.na(Clim.rda))){
+    print("You have some NAs in the df.")
+    NA.site <- length(row.names(MP)[rowSums(is.na(MP)) > 0])
+    NA.clim <- length(row.names(Clim.rda)[rowSums(is.na(Clim.rda)) > 0])
+    
+    if(Remove.NA == F & Complete.NA == F){
+      print(paste(NA.site, "sites have NA on", nrow(MP), "sites for MP."))
+      print(paste(NA.clim, "sites have NA on", nrow(Clim.rda), "sites for climate."))
+      print("**** Do you want to Remove.NA or to Complete.NA ? ****")
+      stop()
+    }
+    else{
+      if(Remove.NA == T & Complete.NA == T){
+        print("Please choose between Remove or Complete the NA.")
+        stop()
+      }
+      if(Remove.NA == T & Complete.NA == F){
+        N1 <- nrow(MP)
+        Site.NA <- row.names(MP)[rowSums(is.na(MP)) > 0]
+        MP <- MP[!row.names(MP) %in% Site.NA,]
+        Clim.rda <- Clim.rda[!row.names(Clim.rda) %in% Site.NA,]
+        
+        Site.NA2 <- row.names(Clim.rda)[rowSums(is.na(Clim.rda)) > 0]
+        MP <- MP[!row.names(MP) %in% Site.NA2,]
+        Clim.rda <- as.data.frame(Clim.rda[!row.names(Clim.rda) %in% Site.NA2,])
+        N2 <- nrow(MP)
+        print(paste("Removing NA (", 100-round(N2/N1, digits = 2)*100, "% des sites)", sep = ""))
+      }
+      if(Remove.NA == F & Complete.NA == T){
+        print(paste("Completing NA (", round((NA.site+NA.clim)/nrow(Clim.rda), digits = 2)*100, "% des sites)", sep = ""))
+        library(missMDA)
+        nb <- estim_ncpPCA(Clim.rda, ncp.max = 5) ## Time consuming, nb = 2
+        Clim.rda.comp <- imputePCA(Clim.rda, ncp = nb[[1]])
+        Clim.rda <- as.data.frame(Clim.rda.comp$completeObs)
+        
+        nb <- estim_ncpPCA(MP, ncp.max = 5) ## Time consuming, nb = 2
+        MP.comp <- imputePCA(MP, ncp = nb[[1]])
+        MP <- MP.comp$completeObs
+      }
+    }
+  }
+  else{print("No NAs. Performing the RDA.")}
+  
+  #### Transforming the data + RDA ####
+  if(transp_OK == F){
+    MP.pca <- rda(MP, Clim.rda, scale = T)
+    MTitle = paste("RDA", Type.samples, "/ climate -", Site.name)
+  }
+  else{
+    if(Helinger.trans == T){
+      MP <- vegan::decostand(MP, method = "hellinger")
+      MP.pca <- rda(MP, scale(Clim.rda), scale = F)
+    }
+    else{
+      MP.pca <- rda(log1p(MP), scale(Clim.rda), scale = T)
+    }
+    
+    MTitle = paste("RDA", Type.samples, "/ climate - log-trans, ", Site.name)}
+  if(Simple.title == T){MTitle = paste("RDA", Type.samples, "/ climate")}
+  if(is.null(Annot) == F){MTitle <- paste(Annot, MTitle)}
+  if(Title.inside == T){MTitle <- NULL}
+  
+  #### VIF test ####
+  if(VIF == T){
+    my_VIF <- vif.cca(MP.pca)
+    if(is.null(VIF.seuil) == F){
+      if(Display.VIF == T){print("**** VIF results ****"); print(round(my_VIF, digits = 1))}
+      my_VIF <- my_VIF[my_VIF < VIF.seuil]
+      Clim.rda <- Clim.rda[which(colnames(Clim.rda) %in% names(my_VIF))]
+      
+      if(transp_OK == F){
+        MP.pca <- rda(MP, Clim.rda, scale = T)
+      }
+      else{
+        if(Helinger.trans == T){
+          MP <- vegan::decostand(MP, method = "hellinger")
+          MP.pca <- rda(MP, scale(Clim.rda), scale = F)
+        }
+        else{
+          MP.pca <- rda(log1p(MP), Clim.rda, scale = T)
+        }
+      }
+    }
+    if(Display.VIF == T){print("**** VIF results **** If you want to remove useless vectors, use VIF.seuil."); print(round(my_VIF, digits = 1))}
+    
+  }
+  #### Calcul parameters ####
+  C_PC.rda <- coef(MP.pca)    # récupère les coefficients canoniques (equivalents R en multivar (donc il faut faire au 2 pour avoir R2)) pour chaque variable clim
+  PClim.sc <- scores(MP.pca, choices=1:2, scaling = Scale.taxa, display = "sp")
+  PClim.sc.site <- scores(MP.pca, choices=1:2, scaling = Scale.sites, display = "sites")
+  
+  clim.score <- MP.pca[["CCA"]][["biplot"]]
+  R2 <- RsquareAdj(MP.pca)$r.squared
+  Tot.eig <- sum(MP.pca[["CCA"]]$eig) + sum(MP.pca[["CA"]]$eig)
+  RDA1 <- MP.pca[["CCA"]]$eig[1]/Tot.eig*100
+  RDA2 <- MP.pca[["CCA"]]$eig[2]/Tot.eig*100
+  
+  #### Graphical parameters ####
+  xmin <- min(c(min(PClim.sc.site[,1]),2*min(PClim.sc[,1])))                             # lim axe PC1
+  xmax <- max(c(max(PClim.sc.site[,1]),2*max(PClim.sc[,1])))
+  ymin <- min(c(min(PClim.sc.site[,2]),2*min(PClim.sc[,2])))                             # lim axe PC2
+  ymax <- max(c(max(PClim.sc.site[,2]),2*max(PClim.sc[,2])))
+  
+  xmin <- xmin + .08*xmin
+  xmax <- xmax + .08*xmin
+  ymin <- ymin + .08*ymin
+  ymax <- ymax + .08*ymax
+  
+  if(is.null(Manu.lim) == F){
+    if(ggplot.display == F){
+      xmin <- Manu.lim[1]
+      xmax <- Manu.lim[2]
+      ymin <- Manu.lim[3]
+      ymax <- Manu.lim[4]
+    }
+    else{
+      Lim.x <- xlim(Manu.lim[c(1,2)])
+      Lim.y <- ylim(Manu.lim[c(3,4)])
+    }
+  }
+  else{Lim.x <- NULL; Lim.y <-  NULL}
+  #par(mar=c(5,4,4,2)+0.1)#,xpd=TRUE)
+  par(mgp = c(1.7,0.6,0), mar=c(3,3,2,0.3)+0.1)
+  
+  #### Contribution ####
+  if(is.null(Vector.show) == F & is.null(Nb.contrib) == T){
+    PClim.sc <- PClim.sc[row.names(PClim.sc) %in% Vector.show,]
+    MP.pca$CCA$v <- MP.pca$CCA$v[row.names(MP.pca$CCA$v) %in% Vector.show,]
+    MP.pca$CA$v <- MP.pca$CA$v[row.names(MP.pca$CA$v) %in% Vector.show,]
+    MP <- MP[colnames(MP) %in% Vector.show]}
+  
+  if(is.null(Nb.contrib) == F){
+    Contribution <- sqrt(abs(scores(MP.pca, display = "sp", scale = 0)[,1])^2 + abs(scores(MP.pca, display = "sp", scale = 0)[,2])^2)
+    Contribution <- Contribution[order(Contribution, decreasing = T)]
+    Contribution <- names(Contribution[1:Nb.contrib])
+    if(is.null(Vector.show) == F){
+      Contribution <- unique(c(Contribution, Vector.show))
+      print(paste("**** We will merge the", Nb.contrib, "most contributing taxa + the", length(Vector.show), "manually selected taxa.****" ))}
+    
+    PClim.sc <- PClim.sc[row.names(PClim.sc) %in% Contribution,]
+    MP.pca$CCA$v <- MP.pca$CCA$v[row.names(MP.pca$CCA$v) %in% Contribution,]
+    MP.pca$CA$v <- MP.pca$CA$v[row.names(MP.pca$CA$v) %in% Contribution,]
+    MP <- MP[colnames(MP) %in% Contribution]}
+  
+  #### Clustering colors ####
+  if(is.null(Cluster.path) == F){
+    if(is.character(Cluster.path) == T){Cluster <- data.frame(read.csv(Cluster.path, sep = Csv.sep ,dec=".",header=T,row.names=1), stringsAsFactors = T)}
+    if(is.data.frame(Cluster.path) == T){Cluster <- Cluster.path}
+    Inter <- intersect(row.names(Cluster), row.names(PClim.sc.site))
+    Cluster <- Cluster[which(row.names(Cluster) %in% Inter),]
+    M.eco <- subset(Cluster, select = Cluster.groups)
+    M.eco <- data.frame(M.eco[][row.names(PClim.sc.site),])
+    row.names(M.eco) <- row.names(PClim.sc.site)
+    Fact.eco <- as.factor(M.eco[[1]])
+    if(is.null(Sort.eco) == F){Fact.eco <- ordered(Fact.eco, levels = Sort.eco)}
+    num_colors <- nlevels(Fact.eco)
+    if(is.null(Color.choice) == F){diamond_color_colors <- Color.choice}
+    else{
+      colfunc    <- colorRampPalette(c("firebrick3", "darkorange", "goldenrod1", "#38A700", "darkgreen", "dodgerblue3", "grey10"))
+      diamond_color_colors <- colfunc(num_colors)
+    }
+    Col.eco <- diamond_color_colors[Fact.eco]
+  }
+  else{Col.eco = 1}
+  
+  if(is.null(Alpha.dot) == F){
+    Col.eco <- adjustcolor(Col.eco, alpha.f = Alpha.dot)
+  }
+  else{Alpha.dot = 1}
+  
+  #### Color scales ggplots ####
+  if(is.null(Cluster.path) == F){
+    
+    values.bi = c("Deserts & Xeric Shrublands" = "#C88282",
+                  "Temperate Grasslands, Savannas & Shrublands" = "#ECED8A",
+                  "Montane Grasslands & Shrublands" = "#D0C3A7",
+                  "Temperate Conifer Forests" = "#6B9A88",
+                  "Temperate Broadleaf & Mixed Forests" = "#3E8A70",
+                  "N/A" = "#FFEAAF",
+                  "Tundra" = "#A9D1C2",
+                  "Boreal Forests/Taiga" = "#8FB8E6",
+                  "Tropical & Subtropical Coniferous Forests" = "#99CA81",
+                  "Mangroves" = "#FE01C4",
+                  "Flooded Grasslands & Savannas" = "#BEE7FF",
+                  "Tropical & Subtropical Moist Broadleaf Forests" = "#38A700",
+                  "Plant_height" = "royalblue",
+                  "Leaf_thickness" = "darkorange",
+                  "Photosynthesis_pathway" = "purple",
+                  "TUSDB sites" = "#323232",
+                  "Woodyness" = "#323232",
+                  "Leaf_size" = "darkred",
+                  "Variable" = "#aa373aff",
+                  "Algal" = "#4666E9",
+                  "NAP" = "#b5ab32ff",
+                  "Herb" = "#b5ab32ff",
+                  "Shrub" = "#aa373aff",
+                  "Other" = "grey90",
+                  "Unknown" = "grey90",
+                  "AP" = "#0f6b31ff",
+                  "Tree" = "#0f6b31ff",
+                  "1_Hyper-arid" = "#8c510a", "2_Arid" = "#bf812e", "3_Semi-arid" = "#dfc27e", "4_Dry sub-humid" = "#f5e9bf", "5_Humid" = "#80cec1",
+                  "1. Hyper-arid" = "#8c510a", "2. Arid" = "#bf812e", "3. Semi-arid" = "#dfc27e", "4. Dry sub-humid" = "#f5e9bf", "5. Humid" = "#80cec1",
+                  Mongolia = "#3e96bdff", Chine = "#f02a26", Uzbekistan = "#6fb440", Armenia = "#54a697", "China, Tibet" = "#8c510a", "Northern Iran" = "#176E5B",
+                  Tajikistan = "#e4af08", Russia = "#0035a9", Azerbaijan = "#094227", China = "#bb0202", "ACA lakes" =  "purple",
+                  "Ch'ol cold desert-steppes" = "#7916C4", 
+                  "Tugai riparian forest" = "#BB0268", 
+                  "Ch'ol warm deserts" = "#bb0202", 
+                  "Adyr desert-steppes" = "#ff5400", 
+                  "Adyr steppes" = "#e6c607", 
+                  "Tau riparian forest" = "#2C9740", 
+                  "Tau thermophilous woodlands" = "#85682D", 
+                  "Tau juniper steppe-forest" = "#176E5B",
+                  "Tau steppes" = "#bab133",
+                  "Alau cryophilous steppe-forest" = "#54a697",
+                  "Alau meadows" = "#197CDA",
+                  "Tugai riparian forests" = "#7916C4", 
+                  "Ch'ol deserts" = "#bb0202", 
+                  "Adyr pseudosteppes" = "#ff5400", 
+                  "Adyr steppes" = "#ECED8A", 
+                  "Tau xeric shrublands" = "#85682D", 
+                  "Tau open woodlands" = "#1e8736",
+                  "Tau steppes" = "#b0a62e",
+                  "Alau cryophilous open woodlands" = "#54a697",
+                  "Alau mesic grasslands" = "#197CDA" 
+    )
+    
+    
+    
+    # values.bi <- values.bi[which(names(values.bi) %in% unique(Keep.xdata[[Cluster.core]]))]
+    Scale.fill <- scale_fill_manual(values = values.bi, drop = T)
+    Scale.color <- scale_color_manual(values = values.bi, drop = T, guide = "none")
+  }
+  else{Scale.fill <- NULL; Scale.color <- NULL}
+  #### Plot ggplot ####
+  if(Display.plot == T & ggplot.display == T){
+    #### Settings ####
+    Text.size = 4
+    Mgg <- setNames(data.frame(PClim.sc.site), c("RDA1", "RDA2"))
+    Mgg$My_color <- M.eco[[1]]
+    LAB <- paste("list(italic(R^2) == ", round(R2, 2), ", n == ", nrow(MP), ")")
+    annotations <- data.frame(
+      annotateText = LAB,
+      xpos = c(Inf),
+      ypos =  c(-Inf),
+      hjustvar = c(1.1) ,
+      vjustvar = c(-0.5))
+    My_annot <- geom_text(data=annotations,aes(x=xpos,y=ypos,hjust=hjustvar,vjust=vjustvar,label=annotateText), parse = T, size = Text.size)
+    
+    if(Marg.density.plot == F){Title.global <- ggtitle(MTitle)}
+    else{Title.global <- NULL}
+    
+    #### Main plot ####
+    p <- ggplot(data = Mgg, aes(x = RDA1, y = RDA2)) +
+      geom_point(aes(color = My_color), size = Dot.size, alpha = Alpha.dot) +
+      geom_segment(data = PClim.sc, aes(x = 0, y = 0, xend = RDA1*Vector.scale, yend = RDA2*Vector.scale), arrow = arrow(length = unit(0.2, "cm")), color = "royalblue") +
+      geom_text(data = PClim.sc, aes(x = RDA1*Vector.scale, y = RDA2*Vector.scale, label = rownames(PClim.sc)), color = "royalblue", vjust = -0.5, size = Text.size) +
+      geom_segment(data = clim.score, aes(x = 0, y = 0, xend = RDA1*Vector.env.scale, yend = RDA2*Vector.env.scale), arrow = arrow(length = unit(0.4, "cm")), color = "darkred", linewidth = 1) +
+      geom_text(data = clim.score, aes(x = RDA1*Vector.env.scale, y = RDA2*Vector.env.scale, label = rownames(clim.score)), color = "darkred", vjust = -0.5, size = Text.size*1.3) +
+      My_annot +
+      Lim.x+ Lim.y+
+      geom_vline(xintercept = 0, lty = "dashed")+
+      geom_hline(yintercept = 0, lty = "dashed")+
+      xlab(bquote(RDA[1] ~ "(" ~ .(format(RDA1, digits = 2)) ~ "%)")) +
+      ylab(bquote(RDA[2] ~ "(" ~ .(format(RDA2, digits = 2)) ~ "% )")) +
+      Title.global+ Scale.fill + Scale.color +
+      theme_classic()+
+      theme(axis.line = element_blank(), legend.background = element_blank(),
+            plot.background = element_blank(), panel.background = element_blank(),
+            strip.placement = "outside", legend.position = Leg.loc,
+            panel.border = element_rect(NA, "black", linewidth = 1))
+    
+    #### Add margin density ####
+    if(Marg.density.plot == T){
+      x_limits <- ggplot_build(p)$layout$panel_scales_x[[1]]$range$range
+      y_limits <- ggplot_build(p)$layout$panel_scales_y[[1]]$range$range
+      if(is.null(Lim.x) == F){x_limits <- c(Lim.x$limits[1]-0.05*abs(min(Lim.x$limits) - max(Lim.x$limits)), Lim.x$limits[2]+0.05*abs(min(Lim.x$limits) - max(Lim.x$limits)))}
+      if(is.null(Lim.y) == F){y_limits <- c(Lim.y$limits[1]-0.05*abs(min(Lim.y$limits) - max(Lim.y$limits)), Lim.y$limits[2]+0.05*abs(min(Lim.y$limits) - max(Lim.y$limits)))}
+      
+      List.of.NA <- which(Mgg$RDA1 < 1e-12 & Mgg$RDA1 > -1e-12 & Mgg$RDA2 < 1e-12 & Mgg$RDA2 > -1e-12)
+      if(length(List.of.NA) > 0){
+        print("Remove NA from density.")
+        Mgg <- Mgg[-List.of.NA,]}
+      
+      #### Density plots up ####
+      plot_top <- ggplot(Mgg, aes(x = RDA1, fill = My_color)) + 
+        geom_density(alpha = 0.6, size = 0.1) + Scale.fill + 
+        scale_x_continuous(limits = x_limits, expand = c(0,0))+
+        ggtitle(MTitle)+
+        #### Theme ####
+      theme(
+        axis.line = element_blank(),
+        axis.text.x = element_blank(), axis.text.y = element_text(hjust = 1, size = 6),
+        axis.ticks.x.bottom = element_blank(),
+        axis.title = element_blank(),
+        axis.line.y = element_line(colour = "grey"),
+        axis.ticks.y = element_line(colour = "grey"),
+        #panel.border = element_rect(fill = NA, colour = "grey"),
+        legend.title = element_text(),
+        legend.key = element_blank(),
+        legend.justification = c("center"),               # left, top, right, bottom
+        legend.text = element_text(size = 8),
+        panel.background = element_blank(),
+        panel.spacing = unit(0.7, "lines"),
+        legend.position = "none",
+        strip.text.x = element_text(size = 12, angle = 0, face = "bold"),
+        strip.placement = "outside",
+        # strip.background = element_rect(color = "white", fill = "white"),
+        strip.background = element_blank(), panel.grid = element_blank(),
+        plot.margin=unit(c(0,0,0,0),"cm")
+      )
+      
+      #### Density plots right ####
+      plot_right <- ggplot(Mgg, aes(x = RDA2, fill = My_color)) + 
+        geom_density(alpha = 0.6, size = 0.1) + Scale.fill +
+        scale_x_continuous(limits = y_limits, expand = c(0,0))+
+        coord_flip() + 
+        #### Theme ####
+      theme(
+        axis.line.y = element_blank(),
+        axis.text.y = element_blank(), axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+        axis.ticks.y = element_blank(),
+        axis.title = element_blank(),
+        axis.line.x = element_line(colour = "grey"),
+        axis.ticks.x = element_line(colour = "grey"),
+        legend.title = element_text(),
+        legend.key = element_blank(),
+        legend.justification = c("center"),               # left, top, right, bottom
+        legend.position = "none",
+        legend.text = element_text(size = 8),
+        panel.background = element_blank(),
+        panel.spacing = unit(0.7, "lines"),
+        strip.text.x = element_text(size = 12, angle = 0, face = "bold"),
+        strip.placement = "outside",
+        # strip.background = element_rect(color = "white", fill = "white"),
+        strip.background = element_blank(), panel.grid = element_blank(),
+        plot.margin=unit(c(0,0,0,0),"cm")
+      )
+      
+      
+      #### Export ####
+      layout <- "AAAAAAA#
+                 CCCCCCCB
+                 CCCCCCCB
+                 CCCCCCCB
+                 CCCCCCCB
+                 CCCCCCCB
+                 "
+      p <- plot_top + plot_right + p + plot_layout(design = layout) #& theme(plot.margin = unit(c(0,0,0,0),"cm"))
+    }
+    Display.plot <- F
+  }
+  
+  #### Plot (R base) ####
+  if(Display.plot == T | is.null(Save.plot) == F){
+    #### Vector plot ####
+    plot(MP.pca,
+         type = "n",
+         scaling = Scale.sites, 
+         main = MTitle,
+         xlim = c(xmin,xmax),
+         ylim = c(ymin,xmax),
+         xlab = bquote(RDA[1] ~ "(" ~ .(format(RDA1, digits = 2)) ~ "%)"),
+         ylab = bquote(RDA[2] ~ "(" ~ .(format(RDA2, digits = 2)) ~ "% )")
+    )
+    
+    
+    
+    #### Shapes ####
+    if(is.null(Shape.groups) == F){
+      M.shape <- subset(Cluster, select = Shape.groups)
+      M.shape <- data.frame(M.shape[][row.names(PClim.sc.site),])
+      row.names(M.shape) <- row.names(PClim.sc.site)
+      Fact.shape <- as.factor(M.shape[[1]])
+      if(is.null(Sort.shape) == F){Fact.shape <- ordered(Fact.shape, levels = Sort.shape)}
+      num_shape <- nlevels(Fact.shape)
+      Shape.list <- c(19,18,20,12,11,10,9,18, 14)
+      Shape.list <- Shape.list[1:num_shape]
+      names(Shape.list) <- levels(Fact.shape)
+      Shape.eco <- as.vector(Shape.list[Fact.shape])
+    }
+    else{Shape.eco = 19}
+    
+    #### Add plots ####
+    if(Show.text == T){text(PClim.sc.site, sub("M","", row.names(MP)), cex=.5, pos = 3)}            # textes sites
+    points(PClim.sc.site, pch = Shape.eco, cex = Dot.size, col = Col.eco)
+    arrows(0,0,x1 = PClim.sc[,1]*Vector.scale, y1 = PClim.sc[,2]*Vector.scale, length = 0.05, lty = 1, col="#6e2115ff")
+    arrows(0,0,x1 = clim.score[,1]*Vector.env.scale, y1 = clim.score[,2]*Vector.env.scale, length = 0.08, lty = 1, lwd = 2, col="#1c4871ff")
+    text(PClim.sc*Vector.scale, colnames(MP), cex = Arrow.lab.size, pos = 3, col = "#6e2115ff")                # textes taxa
+    text(clim.score*Vector.env.scale, row.names(clim.score), cex=1.3, pos = 3, col = "#1c4871ff")      # textes clim
+    if(Title.inside == T){
+      usr <- par("usr")   # save old user/default/system coordinates
+      par(usr = c(0, 1, 0, 1)) # new relative user coordinates
+      text(0.01, 0.95, Annot, adj = 0, cex = 1.7)  # if that's what you want
+      par(usr = usr) # restore original user coordinates
+    }  
+    
+    #### Legend #####
+    if(is.null(Cluster.path) == F & Display.legends == T){
+      legend(Leg.loc,
+             legend = levels(Fact.eco),
+             col = diamond_color_colors,
+             pch = 19, cex = 0.9,
+             y.intersp = 0.85,	          # espace entre y
+             x.intersp = 0.6,           # espace entre x
+             bty = "n" )
+    }
+    
+    #### Legend 2 ####
+    legend(Leg.loc2,
+           legend = bquote(italic(R)^2  == ~ .(format(R2, digits = 2)) ~ ", n = " ~ .(nrow(MP))),
+           pch = NA,
+           y.intersp = 0.7,	                                     # espace entre y
+           x.intersp = 0.4,                                      # espace entre x
+           bty = "n" )
+    
+    #### Add symbol ####
+    if(is.null(Symbol.path) == F){
+      if(is.null(Symbol.loc)== T){Symbol.loc <- c(0.83,0.83,0.99,0.99)}
+      if(grepl("\\.png", Symbol.path)){
+        library(png)
+        library(grid)
+        pic <- readPNG(Symbol.path)
+        usr <- par("usr")
+        par(usr = c(0, 1, 0, 1))
+        rasterImage(pic,Symbol.loc[1], Symbol.loc[2], Symbol.loc[3], Symbol.loc[4])
+        par(usr = usr)
+      }
+      
+      if(grepl("\\.xml", Symbol.path)){
+        library(grImport)
+        pic <- readPicture(Symbol.path)
+        usr <- par("usr")
+        par(usr = c(0, 1, 0, 1))
+        picture(pic,Symbol.loc[1], Symbol.loc[2], Symbol.loc[3], Symbol.loc[4])
+        par(usr = usr)
+      }
+    }
+    
+    #### Add symbol 2 ####
+    if(is.null(Symbol.path.2) == F){
+      if(is.null(Symbol.loc.2)== T){Symbol.loc.2 <- c(0.01,0.9,0.1,0.99)}
+      if(grepl("\\.png", Symbol.path.2)){
+        library(png)
+        library(grid)
+        pic <- readPNG(Symbol.path.2)
+        usr <- par("usr")
+        par(usr = c(0, 1, 0, 1))
+        rasterImage(pic,Symbol.loc.2[1], Symbol.loc.2[2], Symbol.loc.2[3], Symbol.loc.2[4])
+        par(usr = usr)
+      }
+      
+      if(grepl("\\.xml", Symbol.path.2)){
+        library(grImport)
+        pic <- readPicture(Symbol.path.2)
+        usr <- par("usr")
+        # print(Symbol.loc.2[1])
+        par(usr = c(0, 1, 0, 1))
+        picture(pic,Symbol.loc.2[1], Symbol.loc.2[2], Symbol.loc.2[3], Symbol.loc.2[4])
+        par(usr = usr)
+      }
+    }
+  }
+  #### Export data ####
+  if(is.null(Save.path) == F){
+    Site.name <- gsub(" ","_",Site.name)
+    Save.path.Site <- gsub("\\.csv", "_RDA_site.csv", Save.path)
+    Save.path.Taxon <- gsub("\\.csv", "_RDA_taxa.csv", Save.path)
+    write.table(t(PClim.sc.site), file = Save.path.Site, col.names = FALSE, sep = ",")
+    write.table(t(PClim.sc), file = Save.path.Taxon, col.names = TRUE, sep = ",")
+  }
+  
+  if(is.null(Save.plot) == F){
+    if(ggplot.display == T){
+      ggsave(p, file = Save.plot, width = W*0.026458333, height = H*0.026458333, units = "cm")
+    }
+    else{dev.off()}
+  }
+  
+  if(return.VIF == T){return(round(my_VIF, digits = 1))}
+  else{
+    if(Result.vector == T){return(PClim.sc)}
+    if(return.pick == T){return(p)}
+    if(Result.clim == T){return(clim.score)}
+    else{return(MP.pca)}
+    
+  }
 }

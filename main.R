@@ -61,6 +61,9 @@ Fig.A9 = T
 Fig.A10 = T
 Fig.A11 = T
 Tab.A2 = T
+Tab.A3 = T
+Tab.A4 = T
+Tab.A5 = T
 
 # Parameters
 Nb.perm.Moiran.I <- 3
@@ -436,18 +439,22 @@ if(Print.figures == T){
   #### Figure A5 ####
   if(Fig.A5 == T){
     print("**** Figure A5 plotting. ****")
-    Map.SI1 <- Map.biogeo.CWM(MCWT = MCWT.clim.MV_gf, Type1 = "ACA-vegetation",
-                              MCWT2 = MCWT.clim.PT_ss_gf, Type2 = "ACA-pollen-fine", Show.trait.lab = F,
+    
+    Map.SI1 <- Map.biogeo.CWM(MCWT = MCWT.clim.MV_gf, Type1 = "ACA-vegetation", Show.trait.lab = F,
+                              Strip.lab = F, Hex.size = 40, Show.diff = F, Vertical = T, Leg.pos = "none",
+                              Select.trait = c("TRY_LeafArea", "TRY_LeafN", "TRY_SeedMass", "TRY_SLA", "TRY_SSD", "TRY_Height"))
+    
+    Map.SI2 <- Map.biogeo.CWM(MCWT = MCWT.clim.PT_ss_gf, Type1 = "ACA-fine", Show.trait.lab = F,
                               Strip.lab = F, Hex.size = 40, Show.diff = F, Vertical = T, Leg.pos = "bottom",
                               Select.trait = c("TRY_LeafArea", "TRY_LeafN", "TRY_SeedMass", "TRY_SLA", "TRY_SSD", "TRY_Height"))
     
-    Map.SI2 <- Map.biogeo.CWM(MCWT2 = MCWT.clim.PT_sl_gf, Type2 = "ACA-pollen-coarse",
-                              Strip.lab = F, Hex.size = 40, Show.diff = F, Vertical = T, Leg.pos = "bottom",
+    Map.SI3 <- Map.biogeo.CWM(MCWT = MCWT.clim.PT_sl_gf, Type1 = "ACA-coarse", 
+                              Strip.lab = F, Hex.size = 40, Show.diff = F, Vertical = T, Leg.pos = "none",
                               Select.trait = c("TRY_LeafArea", "TRY_LeafN", "TRY_SeedMass", "TRY_SLA", "TRY_SSD", "TRY_Height"))
     
     
-    MAP.CWM.SI <- wrap_plots(Map.SI1, Map.SI2, widths = c(2/3, 1/3))
-    W = 1400 ; H = 2400 ; Save.plot = "Figures/SI/Figure_A5.pdf"
+    MAP.CWM.SI <- wrap_plots(Map.SI1, Map.SI2, Map.SI3, widths = c(1/3, 1/3, 1/3)) 
+    W = 1400 ; H = 2000 ; Save.plot = "Figures/SI/Figure_A5.pdf"
     ggsave(filename = Save.plot, MAP.CWM.SI, width = W*0.026458333, height = H*0.026458333, units = "cm")
   }
   
@@ -741,11 +748,13 @@ if(Print.figures == T){
   #### Figure 6 ####
   if(Fig.6 == T){
     print("**** Figure 6 plotting. ****")
+    
     RL.CWT.clim.PT <- LRelation.CWT.clim(CWT = LR.MCWT.clim.PT_ss_gf,
                                          Select.Pclim = c("MTCOQ", "MPCOQ", "MAP"),
                                          Transform.Pclim = c("MPCOQ", "MAP"), Transformation.method = "sqrt",
                                          Select.trait = c("TRY_SSD", "TRY_Height", "TRY_LeafArea"),
-                                         Strip.lab = F,
+                                         Strip.lab = F, Add.n = F, Add.n.facet = T,
+                                         Add.bootstrap = T, Nb.boot = 9999, 
                                          Select.eco = c("Type"),
                                          Leg.pos = "none", Add.linear = T, Alpha = .2, Trait.lim = c(-3,2),
                                          Bit.map = T, Pearson.r = T, Pearson.r.pos = "bottomright")
@@ -754,17 +763,48 @@ if(Print.figures == T){
                                         Select.Pclim = c("MTCOQ", "MPCOQ", "MAP"),
                                         Transform.Pclim = c("MPCOQ", "MAP"), Transformation.method = "sqrt",
                                         Select.trait = c("TRY_SSD", "TRY_Height", "TRY_LeafArea"),
-                                        Select.eco = c("Type"), Strip.lab = F, Bit.map = T, Pearson.r = T,
+                                        Select.eco = c("Type"), Strip.lab = F, Bit.map = T, Pearson.r = T, Add.n = F, Add.n.facet = T,
+                                        Add.bootstrap = T, Nb.boot = 9999, 
                                         Leg.pos = "none", Add.linear = T, Alpha = .05, Pearson.r.pos = "bottomright")
     
     RL.full <- RL.CWT.clim.V/RL.CWT.clim.PT
     W = 700 ; H = 1200 ; Save.plot = "Figures/Article/Figure_6.pdf"
     ggsave(RL.full, file = Save.plot, width = W*0.026458333, height = H*0.026458333, units = "cm", useDingbats = TRUE)
-  }
+  
+    }
   
   #### Figure 7 ####
   if(Fig.7 == T){
     print("**** Figure 7 plotting. ****")
+    My_use.cor <- "pairwise.complete.obs"
+    My_method.cor <- "pearson"
+    
+    MC.mv.gf <- Mat.corel.CWT.clim(MCWT.clim.MV_gf[Clim], MCWT.clim.MV_gf[Trait], 
+                                   I.confiance = 0.95, Display.pval = "pch", 
+                                   Disp.R = "number", Label = F, Average = F,  Bar.pos = "n",  return.pick = F,
+                                   Return.slope = F, Print.result = F, 
+                                   Use.cor = My_use.cor, Method.cor = My_method.cor)
+    
+    MC.ss.gf <- Mat.corel.CWT.clim(MCWT.clim.PT_ss_gf[Clim], MCWT.clim.PT_ss_gf[Trait],
+                                   I.confiance = 0.95, return.pick = F, Return.slope = T, Print.result = F, Display.pval = "pch", 
+                                   Disp.R = "number", Label = F, Average = F,  Bar.pos = "n",
+                                   Use.cor = My_use.cor, Method.cor = My_method.cor,)
+    
+    MC.sl.gf <- Mat.corel.CWT.clim(MCWT.clim.PT_sl_gf[Clim], MCWT.clim.PT_sl_gf[Trait], 
+                                   I.confiance = 0.95, Return.slope = T, Print.result = F,
+                                   Display.pval = "pch", return.pick = F,
+                                   Disp.R = "number", Label = F, Average = F,  Bar.pos = "n",
+                                   Use.cor = My_use.cor, Method.cor = My_method.cor)
+    
+    Diff.mat <- round(MC.mv.gf$R2 - MC.ss.gf$R2, digits = 2)
+    CP1 <- corrplot(Diff.mat, tl.col="black", tl.srt=45, tl.cex = .7, method = "number", cl.align.text = "l", cl.pos = "n",
+                    sig.level = 0.05, insig = "pch", pch.cex = 2)
+    
+    Diff.mat <- round(MC.mv.gf$R2 - MC.sl.gf$R2, digits = 2)
+    CP2 <- corrplot(Diff.mat, tl.col="black", tl.srt=45, tl.cex = .7, method = "number", cl.align.text = "l", cl.pos = "n",
+                    sig.level = 0.05, insig = "pch", pch.cex = 2)
+    
+    #### R2 compar ####
     p1 <- R2.compar(MV = MC.mv.gf, MP = MC.ss.gf, Repel.outliers = F, Show.Plotly = F, 
                     Compare.slopes = F, RMA = T, Avg.r.Fisher.z = T,
                     Leg.pos = c(0.2, 0.8), shade.areas = T, Display.message = F,
@@ -911,7 +951,142 @@ if(Print.figures == T){
   
   #### Table A2 ####
   if(Tab.A2 == T){
+    #### Parameters for all RDA ####
+    DF.RDA1 <- setNames(data.frame(t(MCWT.clim.PT_ss_gf[,Trait]), check.names = F), MCWT.clim.PT_ss_gf$Site)
+    row.names(MCWT.clim.PT_ss_gf) <- MCWT.clim.PT_ss_gf$Site
+    DF.RDA2 <- setNames(data.frame(t(MCWT.clim.PT_sl_gf[,Trait]), check.names = F), MCWT.clim.PT_sl_gf$Site)
+    row.names(MCWT.clim.PT_sl_gf) <- MCWT.clim.PT_sl_gf$Site
+    DF.RDA3 <- setNames(data.frame(t(MCWT.clim.MV_gf[,Trait]), check.names = F), MCWT.clim.MV_gf$Site)
+    row.names(MCWT.clim.MV_gf) <- MCWT.clim.MV_gf$Site
+    Keep.param.clim <- c("AI", "MPWAQ", "MPCOQ", "MTCOQ", "MTWAQ", "MAP", "MAAT")
+    Keep.param.clim.2 <- c("MPCOQ", "MTCOQ", "MAP", "MAAT")
+    Cluster.groups <- "Biome"
+    
+    #### RDA ####
     print("**** Table A2 LaTeX export. ****")
+    
+    VIF.ss.gf <- RDA.pollen.surf(MP = DF.RDA1, MClim = MCWT.clim.PT_ss_gf, GDGT = F, Remove.NA = F, Complete.NA = T,
+                                 Choose.clim = Keep.param.clim, Display.plot = F, Csv.sep =",", transp_OK = F, Helinger.trans = F, VIF = T, Display.VIF = F, return.VIF = T)
+    
+    VIF.ss.gf.2 <- RDA.pollen.surf(MP = DF.RDA1, MClim = MCWT.clim.PT_ss_gf, GDGT = F, Remove.NA = F, Complete.NA = T,
+                                   Choose.clim = Keep.param.clim.2, Display.plot = F, Csv.sep =",", transp_OK = F, Helinger.trans = F, VIF = T, Display.VIF = F, return.VIF = T)
+    
+    VIF.sl.gf <- RDA.pollen.surf(MP = DF.RDA2, MClim = MCWT.clim.PT_sl_gf, GDGT = F, Remove.NA = F, Complete.NA = T,
+                                 Choose.clim = Keep.param.clim, Display.plot = F, Csv.sep =",", transp_OK = F, Helinger.trans = F, VIF = T, Display.VIF = F, return.VIF = T)
+    
+    VIF.sl.gf.2 <- RDA.pollen.surf(MP = DF.RDA2, MClim = MCWT.clim.PT_sl_gf, GDGT = F, Remove.NA = F, Complete.NA = T,
+                                   Choose.clim = Keep.param.clim.2, Display.plot = F, Csv.sep =",", transp_OK = F, Helinger.trans = F, VIF = T, Display.VIF = F, return.VIF = T)
+    
+    VIF.MV <- RDA.pollen.surf(MP = DF.RDA3, MClim = MCWT.clim.MV_gf, GDGT = F, Remove.NA = T, Complete.NA = F,
+                              Choose.clim = Keep.param.clim, Display.plot = F, Csv.sep =",", transp_OK = F, Helinger.trans = F, VIF = T, Display.VIF = F, return.VIF = T)
+    
+    VIF.MV.2 <- RDA.pollen.surf(MP = DF.RDA3, MClim = MCWT.clim.MV_gf, GDGT = F, Remove.NA = T, Complete.NA = F,
+                                Choose.clim = Keep.param.clim.2, Display.plot = F, Csv.sep =",", transp_OK = F, Helinger.trans = F, VIF = T, Display.VIF = T, return.VIF = T)
+    
+    #### Table VIF ####
+    Table.VIF <- data.frame(rbind(VIF.MV, VIF.ss.gf, VIF.sl.gf))
+    Table.VIF$Dataset <- c("Vegetation", "Pollen (fine)", "Pollen (coarse)")
+    Table.VIF$Model <- "All predictors"
+    
+    Table.VIF.2 <- data.frame(rbind(VIF.MV.2, VIF.ss.gf.2, VIF.sl.gf.2))
+    Table.VIF.2$Dataset <- c("Vegetation", "Pollen (fine)", "Pollen (coarse)")
+    Table.VIF.2$Model <- "Selected predictors"
+    
+    Table.VIF <- full_join(Table.VIF, Table.VIF.2)
+    names(Table.VIF) <- gsub("_wc", "", names(Table.VIF))
+    Table.VIF <- Table.VIF[c(9,8,7,5,4,1,6,2,3)]
+    
+    Table.VIF$Model.clean <- Table.VIF$Model
+    for(i in 2:nrow(Table.VIF)){if(Table.VIF$Model[i] == Table.VIF$Model[i-1]){Table.VIF$Model.clean[i] <- ""}}
+    Table.VIF <- Table.VIF[c(ncol(Table.VIF), 2: (ncol(Table.VIF)-1))]
+    names(Table.VIF)[names(Table.VIF) == "Model.clean"] <- "Model"
+    
+    LateX.caption <- "Variance Inflation Factor (VIF) values for the seven climatic variables included in the principal component analysis (Figure 4). VIF values were calculated to assess the degree of collinearity of climate parameters with their correlation with vegetation and pollen datasets, both at the fine and coarse aggregation schemes."
+    Tlatex <- xtable::xtable(Table.VIF, caption = LateX.caption, type = "latex", label = "FT_table")
+    Save.path.tex <- "Results/Table_LaTeX/Table_A2.tex"
+    print(Tlatex, file = Save.path.tex, booktabs = T, include.rownames = F, comment = F,
+          caption.placement = "top", sanitize.text.function = function(x){x},
+          hline.after = c(-1,0,3,nrow(Table.VIF)))
+  }
+  
+  #### Table A3 ####
+  if(Tab.A3 == T){
+    print("**** Table A3 LaTeX export. ****")
+    PR.PT.ss <- Partial.Regression.CWM(
+      dataframe = MCWT.clim.PT_ss_gf,
+      List.of.traits = c("TRY_Height", "TRY_LeafArea", "TRY_SSD"),
+      Climate.param.1 = "MAP",
+      Climate.param.2 = "MPCOQ",
+      Climate.param.3 = "MTCOQ"
+    )
+    
+    PR.MV <- Partial.Regression.CWM(
+      dataframe = MCWT.clim.MV_gf,
+      List.of.traits = c("TRY_Height", "TRY_LeafArea", "TRY_SSD"),
+      Climate.param.1 = "MAP",
+      Climate.param.2 = "MPCOQ",
+      Climate.param.3 = "MTCOQ",
+    )
+    
+    Table.PR <- cbind(PR.MV[[1]], setNames(PR.PT.ss[[1]][c(3:5)], c("Global $R^2_{adj.}$", "Partial $R^{2}$", "$p$-value")))
+    print(Table.PR)
+    
+    LateX.caption <- "Metrics of the partial regressions models comparing CWMs and climate parameters for both vegetation and pollen fine datasets. The set of relationships tested correspond to Figure 6. Statistical significance is denoted as * (p < 0.05), ** (p < 0.01), and *** (p < 0.001)."
+    Tlatex <- xtable::xtable(Table.PR, caption = LateX.caption, type = "latex", label = "Table_PR")
+    Save.path.tex <- "Results/Table_LaTeX/Table_A3.tex"
+    print(Tlatex, file = Save.path.tex, booktabs = T, include.rownames = F, comment = F,
+          caption.placement = "top", sanitize.text.function = function(x){x},
+          hline.after = c(-1,0,3,nrow(Table.PR)))
+  }
+  #### Table A4 ####
+  if(Tab.A4 == T){
+    print("**** Table A4 LaTeX export. ****")
+    dir.create("Results/Bootstrap", recursive = T, showWarnings = F)
+    
+    #### LR with filtered dataset ####
+    RL.CWT.clim.V <- LRelation.CWT.clim(CWT = LR.MCWT.clim.MV_gf,
+                                        Select.Pclim = c("MTCOQ", "MPCOQ", "MAP"),
+                                        Transform.Pclim = c("MPCOQ", "MAP"), Transformation.method = "sqrt",
+                                        Select.trait = c("TRY_SSD", "TRY_Height", "TRY_LeafArea"),
+                                        Select.eco = c("Type"), Strip.lab = F, Bit.map = T, Pearson.r = T, Add.n = F, Add.n.facet = T,
+                                        Add.bootstrap = T, Nb.boot = 9999, Save.bootstrap = "Results/Bootstrap/Bootstrap_CWM_veget_filtered.Rds", r.size = 3.2,
+                                        Leg.pos = "none", Add.linear = T, Alpha = .05, Pearson.r.pos = "bottomright")
+    
+    names(MCWT.clim.MV_gf.imp) <- gsub("_wc", "", names(MCWT.clim.MV_gf.imp))
+    MCWT.clim.MV_gf.imp$Type <- "Vegetation" 
+    
+    #### LR with unfiltered dataset ####
+    RL.CWT.clim.V <- LRelation.CWT.clim(CWT = MCWT.clim.MV_gf.imp,
+                                        Select.Pclim = c("MTCOQ", "MPCOQ", "MAP"),
+                                        Transform.Pclim = c("MPCOQ", "MAP"), Transformation.method = "sqrt",
+                                        Select.trait = c("TRY_SSD", "TRY_Height", "TRY_LeafArea"),
+                                        Select.eco = c("Type"), Strip.lab = F, Bit.map = T, Pearson.r = T, Add.n = F, Add.n.facet = T,
+                                        Add.bootstrap = T, Nb.boot = 9999, Save.bootstrap = "Results/Bootstrap/Bootstrap_CWM_veget_unfiltered.Rds", r.size = 3.2,
+                                        Leg.pos = "none", Add.linear = T, Alpha = .05, Pearson.r.pos = "bottomright")
+    
+    #### Sensitivity Analysis ####
+    Bootstrap.unf <- readRDS("Results/Bootstrap/Bootstrap_CWM_veget_unfiltered.Rds")
+    Bootstrap.fil <- readRDS("Results/Bootstrap/Bootstrap_CWM_veget_filtered.Rds")
+    
+    Bootstrap.unf <- Bootstrap.unf[c(1:7)]
+    Bootstrap.fil <- Bootstrap.fil[c(1:7)]
+    
+    RBS <- Bootstrap.Sensitivity(DF1 = MCWT.clim.MV_gf.imp,
+                                 DF2 = LR.MCWT.clim.MV_gf, id_col = "Site",
+                                 Relation.2.test = c("TRY_Height vs. MAAT",
+                                                     "TRY_LeafArea vs. MPCOQ",
+                                                     "TRY_SeedMass vs. MTCOQ",
+                                                     "TRY_SLA vs. MAP",
+                                                     "TRY_SSD vs. MAAT"), 
+                                 Nb.boot = 9999, Digits.r = 2, Digits.slope = 4,
+                                 Save.LateX = "Results/Table_LaTeX/Table_A4.tex")
+    print(RBS)
+    }
+  
+  
+  #### Table A5 ####
+  if(Tab.A5 == T){
+    print("**** Table A5 LaTeX export. ****")
     Tab.to.exp <- data.frame(Rank = seq(1, nrow(data.frame(Pollen.PCA.sl.contrib))), 
                              Pollen.type = names(Pollen.PCA.sl.contrib),
                              "PCA contribution" = round(Pollen.PCA.sl.contrib, digits = 3))
@@ -928,13 +1103,13 @@ if(Print.figures == T){
     Tab.to.exp$'Mean FA (%)' <- Mean.FA[match(row.names(Tab.to.exp),names(Mean.FA))]
     names(Tab.to.exp) <- gsub("\\.", " ", names(Tab.to.exp))
     
-    Save.path.tex <- "Results/Table_LaTeX/Table_A2.tex"
+    Tab.to.exp <- Tab.to.exp[c(1:22),]
+    Save.path.tex <- "Results/Table_LaTeX/Table_A5.tex"
     LateX.caption <- "Presentation of the main ACA pollen types inferred by PCA contribution and average fractional adundances of the whole pollen surface database."
     Tlatex <- xtable::xtable(Tab.to.exp, caption = LateX.caption, type = "latex", label = "FT_table")
     print(Tlatex, file = Save.path.tex, booktabs = T, include.rownames = F, comment = F, caption.placement = "top", sanitize.text.function = function(x){x})
     
     write.table(Tab.to.exp, "Results/Pollen/PCA_22_type_sl_ACA_contrib.csv", row.names = F)
-    
   }
   
 }
