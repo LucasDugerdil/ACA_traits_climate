@@ -1,19 +1,44 @@
-# Pollen-based functional traits for the Arid Central Asia (ACA).
+# Climate vs. pollen-based functional traits for the Arid Central Asia (ACA).
 
 ## Overview
-This repository contains the R code and data for the study:
+This GitHub project is associated to the publication of "*Trait–climate relationships are comparable for modern pollen assemblages and extant vegetation plots*" published in *Global Ecology and Biogeography* in 2026 (Dugerdil et al., 2026c) and accessible at **DOI:** [10.1111/geb.70303].
 
-**"Modern pollen assemblages and vegetation plots record similar community functional trait responses to climate."**  
-In preparation in *Journal of Ecology*.
+**Author**: **Lucas Dugerdil**<sup>1,2</sup>
 
-Author: **Lucas Dugerdil**  
-Affiliations:  
+**Affiliations**:
 1. Univ. Lyon, ENS de Lyon, Université Lyon 1, CNRS, UMR 5276 LGL-TPE, F-69364, Lyon, France  
 2. Université de Montpellier, CNRS, IRD, EPHE, UMR 5554 ISEM, Montpellier, France  
-ORCID: [0000-0003-0266-564X](https://orcid.org/0000-0003-0266-564X)  
 
-The first release is available and citable from zenodo 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16679065.svg)](https://doi.org/10.5281/zenodo.16679065)
+**ORCID**: [0000-0003-0266-564X](https://orcid.org/0000-0003-0266-564X)  
+
+**Funding**: ANR, Grant [ANR‐22‐CE27‐0018](https://anr.fr/Project-ANR-22-CE27-0018) (STEPABILITY), Sébastien Joannin
+
+**Open Access**:
+
+<table width="100%">
+  <tr>
+    <td width="33.33%" align="left" valign="middle"><strong>Research article</strong></td>
+    <td width="33.33%" align="left" valign="middle"><strong>Published release</strong></td>
+    <td width="33.33%" align="left" valign="middle"><strong>Data repository</strong></td>
+  </tr>
+  <tr>
+    <td width="33.33%" align="left" valign="middle">
+
+[![Static Badge](https://img.shields.io/badge/DOI-10.1111%2Fgeb.70303-yellow)](https://doi.org/10.1111/geb.70303)
+
+</td>
+    <td width="33.33%" align="left" valign="middle">
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21107255.svg)](https://doi.org/10.5281/zenodo.21107255)
+
+</td>
+    <td width="33.33%" align="left" valign="middle">
+
+No new data.
+
+</td>
+  </tr>
+</table>
 
 ## Description
 This script loads and cleans community-weighted mean (CWM) trait values devired from both vegetation plots and pollen surface samples from the Arid Central Asia (ACA).
