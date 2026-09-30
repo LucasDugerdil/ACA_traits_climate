@@ -8,7 +8,7 @@ My_color <- c("TraCE Armenia"= "#49708A", "Armenia" = "#49708A", "TraCE Caucasus
 
 #### Calculation Functions ####
 
-Clim.param.extraction <- function(M, Clim.cal, All.param, Season, Seasonality, Map.display, 
+Clim.param.extraction <- function(M, Clim.cal, All.param, Season, Seasonality, Map.display, Traits.China = F,
                                   Altitude, Chelsa, Aridity, Biome, MAF, Csv.sep = ",", Soil.temp = F,
                                   Clim.display, Land.cover, Nb.map, Save.path, Save.plot, H, W){
   #### Initialisation variable ####
@@ -211,6 +211,23 @@ Clim.param.extraction <- function(M, Clim.cal, All.param, Season, Seasonality, M
       Aridity.extract <- raster::extract(Aridity.map, DB.coord.SP)
       Name.var = gsub(".path","", names(Aridity.param)[[j]])
       DB.coord.num <- cbind(DB.coord.num, Aridity.extract)
+      colnames(DB.coord.num)[ncol(DB.coord.num)] = Name.var
+    }
+  }
+  
+  #### Trait (interpol. map China) ####
+  if(Traits.China == T){
+    browser()
+    Trait.path = "/media/lucas.dugerdil/Extreme SSD/Documents/Recherche/SIG/Data_Water/CGAR/"
+    Trait.param = list(AI.path = "ai_et0/ai_et0.tif")
+    #### Extraction des valeurs Trait ####
+    for(j in 1:length(Trait.param)){
+      Trait.map = raster::raster(paste(Trait.path, Trait.param[[j]], sep = ""))
+      crs(Trait.map) <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+      DB.coord.SP <- spTransform(DB.coord.SP, crs(Trait.map))
+      Trait.extract <- raster::extract(Trait.map, DB.coord.SP)
+      Name.var = gsub(".path","", names(Trait.param)[[j]])
+      DB.coord.num <- cbind(DB.coord.num, Trait.extract)
       colnames(DB.coord.num)[ncol(DB.coord.num)] = Name.var
     }
   }
@@ -771,6 +788,7 @@ Stacking.quantif <- function(Imput.list, Keep.clim = NULL, Scaling = F, Plot.x =
           print(paste("**** No 'Windows.length' provide, we binned the data by ", Windows.length, ". Use 'Windows.length' argument else. ****", sep = ""))
         }
         TW.x <- seq(Limits[1], Limits[2], Windows.length)
+        print("jojo")
         Imput.list <- Bin.by.TW(Imput.list, Anomaly = Anomaly, Add.bin.count = Add.bin.count)
         
         if(Bin.sd == T & is.null(New.param.names) == F){New.param.names <- c(New.param.names, paste("SD", New.param.names[-c(1)], sep = "_"))}
@@ -4206,3 +4224,5 @@ RDA.pollen.surf <- function(MP, MClim, Choose.clim, Cluster.path = NULL, Alpha.d
     
   }
 }
+
+
