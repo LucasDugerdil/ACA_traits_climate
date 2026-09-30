@@ -43,7 +43,7 @@ No new data.
 ## Description
 This script loads and cleans community-weighted mean (CWM) trait values devired from both vegetation plots and pollen surface samples from the Arid Central Asia (ACA).
 Then, the relationships between CWMs and climate parameters are tested for both datasets and compared. This script also assess spatial representativeness of `WorldClim2.1` (Fick and Hijmans, 2017) and `CHELSA` (Karger et al., 2017).
-The methodological study to reconstruct CWM from pollen data is available from Dugerdil et al. (2025a, JBI) and the associated script may be found in [https://github.com/LucasDugerdil/TraitPollen][https://github.com/LucasDugerdil/TraitPollen]
+The methodological study to reconstruct CWM from pollen data is available from Dugerdil et al. (2025a, JBI) and the associated script may be found in [https://github.com/LucasDugerdil/TraitPollen][https://github.com/LucasDugerdil/TraitPollen].
 
 ## Structure
 - `/` main.R – the main R script to run
