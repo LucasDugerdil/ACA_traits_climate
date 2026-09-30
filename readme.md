@@ -1,7 +1,7 @@
 # Climate vs. pollen-based functional traits for the Arid Central Asia (ACA).
 
 ## Overview
-This GitHub project is associated to the publication of "*Trait–climate relationships are comparable for modern pollen assemblages and extant vegetation plots*" published in *Global Ecology and Biogeography* in 2026 (Dugerdil et al., 2026c) and accessible at **DOI:** [10.1111/geb.70303].
+This GitHub project is associated to the publication of "*Trait–climate relationships are comparable for modern pollen assemblages and extant vegetation plots*" published in *Global Ecology and Biogeography* in 2026 (Dugerdil et al., 2026c).
 
 **Author**: **Lucas Dugerdil**<sup>1,2</sup>
 
